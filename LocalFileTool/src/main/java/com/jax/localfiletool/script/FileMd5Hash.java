@@ -38,10 +38,8 @@ public class FileMd5Hash {
 
     /** 尾块魔数，用于识别并剥离上一次追加的内容 */
     private static final byte[] MAGIC = "JAXMUT01".getBytes(StandardCharsets.US_ASCII);
-
     /** 每次追加的随机负载长度（字节） */
     private static final int PAYLOAD_LEN = 16;
-
     /** 完整尾块长度 = 随机负载 + 魔数 */
     private static final int TRAILER_LEN = PAYLOAD_LEN + MAGIC.length;
 
@@ -62,19 +60,22 @@ public class FileMd5Hash {
      * @return 每个媒体文件处理前后的哈希对比结果
      */
     public List<MediaHashResult> mutateAll(String dirPath) {
-        File root = new File(dirPath);
-        if (!root.exists()) {
+        File filePath = new File(dirPath);
+        if (!filePath.exists()) {
             throw new IllegalArgumentException("路径不存在: " + dirPath);
         }
-        if (!root.isDirectory()) {
+        if (!filePath.isDirectory()) {
             throw new IllegalArgumentException("路径不是目录: " + dirPath);
         }
 
         // 递归列出目录下所有文件，再按扩展名筛选媒体文件
-        Collection<File> files = FileUtils.listFiles(root, null, true);
+        Collection<File> files = FileUtils.listFiles(filePath, null, true);
         List<MediaHashResult> results = new ArrayList<>();
         for (File file : files) {
             String type = classify(file.getName());
+            log.info("文件名 = " + file);
+            log.info("文件类型  = " + type);
+
             if (type == null) {
                 continue;
             }
@@ -94,8 +95,11 @@ public class FileMd5Hash {
                 .filePath(file.getAbsolutePath())
                 .type(type);
         try {
+
             byte[] before = FileUtils.readFileToByteArray(file);
             String oldMd5 = DigestUtils.md5Hex(before);
+            log.info("文件:"+file.getAbsolutePath() + " &旧md5 = " + oldMd5);
+
             builder.oldSize(before.length)
                     .oldMd5(oldMd5)
                     .oldSha256(DigestUtils.sha256Hex(before));
@@ -116,6 +120,8 @@ public class FileMd5Hash {
                     .newMd5(newMd5)
                     .newSha256(DigestUtils.sha256Hex(mutated))
                     .changed(true);
+            log.info("文件:"+file+" &新md5 = " + newMd5);
+
             log.debug("已变更 [{}] {} -> {}", file.getName(), oldMd5, newMd5);
         } catch (IOException e) {
             log.error("处理文件失败: {}", file.getAbsolutePath(), e);
@@ -128,19 +134,51 @@ public class FileMd5Hash {
      * 若文件末尾存在本工具追加的尾块（以魔数结尾），则去除它，返回原始内容。
      */
     private byte[] stripTrailer(byte[] data) {
+        // 安全检查：文件长度连一个完整尾块(24字节)都不到，
+        // 就不可能包含我们追加的尾块，没必要往下比，直接原样返回
         if (data.length >= TRAILER_LEN) {
+
+            // off = 魔数在文件中"应该"开始的位置。
+            // 文件总长往前数 MAGIC.length(8) 个字节，就是末尾这 8 字节的起点。
+            // 例如文件长 122，则 off = 114，魔数若存在就占索引 114~121。
             int off = data.length - MAGIC.length;
+
+            // 先乐观假设末尾就是我们的魔数，比对过程中一旦发现不符再改成 false
             boolean match = true;
+
+            // i 表示"当前是第几次循环"，从 0 开始：
+            //   i=0 → 第1次，比对魔数的第1个字节
+            //   i=1 → 第2次，比对魔数的第2个字节
+            //   ... 一直到 i=7 → 第8次（最后一次），比对魔数的第8个字节
             for (int i = 0; i < MAGIC.length; i++) {
+
+                // data[off + i] = 文件末尾这段里，当前正在检查的那个字节。
+                //   i=0 时是 data[114]，应对应魔数 'J'
+                //   i=1 时是 data[115]，应对应魔数 'A'
+                //   ...
+                //   i=7 时是 data[121]，应对应魔数 '1'
+                // MAGIC[i] = 魔数 "JAXMUT01" 中当前位置应有的字节。
+                // 两者比较：文件里的实际字节 != 魔数里期望的字节 → 说明对不上
                 if (data[off + i] != MAGIC[i]) {
-                    match = false;
-                    break;
+                    match = false;  // 标记为"不是我们的尾块"
+                    break;          // 跳出循环：只要有一个字节不符就能确定结论，
+                                    // 没必要再比剩下的字节，立即结束
                 }
+                // 若本次字节相符，则不进入 if，循环继续 i++ 比下一个字节。
+                // 当 8 个字节全部比完都相符（i 增到 8，不再满足 i < MAGIC.length），
+                // 循环自然结束，此时 match 仍为 true。
             }
+
+            // match 为 true：末尾 8 字节与魔数完全一致，确认是我们上次追加的尾块
             if (match) {
+                // 复制前 (总长 - 24) 个字节，相当于砍掉末尾整个尾块(随机负载16 + 魔数8)，
+                // 返回剥离后的原始内容
                 return Arrays.copyOf(data, data.length - TRAILER_LEN);
             }
         }
+
+        // 走到这里有两种情况：① 文件太短；② 末尾对不上魔数。
+        // 都说明这文件没有我们的尾块，原样返回，不做任何改动。
         return data;
     }
 
@@ -165,10 +203,14 @@ public class FileMd5Hash {
      */
     private String classify(String fileName) {
         String ext = FilenameUtils.getExtension(fileName).toLowerCase();
+
+
         if (IMAGE_EXT.contains(ext)) {
+            log.info("文件名 = "+ fileName+" &后缀 = " +ext+" &属性 = image");
             return "IMAGE";
         }
         if (VIDEO_EXT.contains(ext)) {
+            log.info("文件名 = "+ fileName+" &后缀 = " +ext+" &属性 = video");
             return "VIDEO";
         }
         return null;
