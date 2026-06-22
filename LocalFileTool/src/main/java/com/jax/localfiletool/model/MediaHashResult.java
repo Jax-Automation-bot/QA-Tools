@@ -13,7 +13,7 @@ public class MediaHashResult {
     /** 文件绝对路径 */
     private String filePath;
 
-    /** 文件类型：IMAGE / VIDEO */
+    /** 文件类型：IMAGE / ANIMATION / VIDEO / AUDIO */
     private String type;
 
     /** 处理前文件大小（字节） */

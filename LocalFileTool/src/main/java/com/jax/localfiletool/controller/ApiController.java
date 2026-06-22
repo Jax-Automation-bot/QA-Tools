@@ -23,7 +23,7 @@ public class ApiController {
     private final FileMd5Hash fileMd5Hash;
 
     /**
-     * 更新指定目录下所有图片 / 视频文件的 MD5 / SHA-256。
+     * 更新指定目录下所有图片 / 动态图片 / 视频 / 音频文件的 MD5 / SHA-256。
      *
      * <p>示例：{@code POST /api/media/mutate?path=D:/photos}</p>
      *

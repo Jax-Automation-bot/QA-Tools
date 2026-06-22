@@ -20,7 +20,7 @@ import java.util.Set;
 /**
  * 媒体文件 MD5 / SHA-256 变更脚本。
  *
- * <p>扫描指定目录下（递归）的图片与视频文件，计算其 MD5 与 SHA-256，
+ * <p>扫描指定目录下（递归）的图片、动态图片、视频与音频文件，计算其 MD5 与 SHA-256，
  * 然后向文件尾部追加一段随机字节，使每次执行后 MD5 / SHA-256 都与上一次不同。</p>
  *
  * <p>实现要点：</p>
@@ -45,11 +45,19 @@ public class FileMd5Hash {
 
     /** 图片扩展名（小写） */
     private static final Set<String> IMAGE_EXT = Set.of(
-            "jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "heic", "heif");
+            "jpg", "jpeg", "png", "bmp", "webp", "tif", "tiff", "heic", "heif");
+
+    /** 动态图片扩展名（小写）。gif / apng 等以连续帧表现动画的图片格式 */
+    private static final Set<String> ANIMATION_EXT = Set.of(
+            "gif", "apng");
 
     /** 视频扩展名（小写） */
     private static final Set<String> VIDEO_EXT = Set.of(
             "mp4", "avi", "mov", "mkv", "flv", "wmv", "webm", "m4v", "mpeg", "mpg", "3gp", "ts");
+
+    /** 音频扩展名（小写） */
+    private static final Set<String> AUDIO_EXT = Set.of(
+            "mp3", "wav", "flac", "aac", "ogg", "oga", "m4a", "wma", "aiff", "aif", "opus", "ape", "amr");
 
     private final SecureRandom random = new SecureRandom();
 
@@ -70,6 +78,9 @@ public class FileMd5Hash {
 
         // 递归列出目录下所有文件，再按扩展名筛选媒体文件
         Collection<File> files = FileUtils.listFiles(filePath, null, true);
+
+        log.info("扫描出:"+files.size()+"个文件");
+
         List<MediaHashResult> results = new ArrayList<>();
         for (File file : files) {
             String type = classify(file.getName());
@@ -199,7 +210,7 @@ public class FileMd5Hash {
     /**
      * 按扩展名判断文件类型。
      *
-     * @return IMAGE / VIDEO，非媒体文件返回 null
+     * @return IMAGE / ANIMATION / VIDEO / AUDIO，非媒体文件返回 null
      */
     private String classify(String fileName) {
         String ext = FilenameUtils.getExtension(fileName).toLowerCase();
@@ -209,9 +220,17 @@ public class FileMd5Hash {
             log.info("文件名 = "+ fileName+" &后缀 = " +ext+" &属性 = image");
             return "IMAGE";
         }
+        if (ANIMATION_EXT.contains(ext)) {
+            log.info("文件名 = "+ fileName+" &后缀 = " +ext+" &属性 = animation");
+            return "ANIMATION";
+        }
         if (VIDEO_EXT.contains(ext)) {
             log.info("文件名 = "+ fileName+" &后缀 = " +ext+" &属性 = video");
             return "VIDEO";
+        }
+        if (AUDIO_EXT.contains(ext)) {
+            log.info("文件名 = "+ fileName+" &后缀 = " +ext+" &属性 = audio");
+            return "AUDIO";
         }
         return null;
     }
