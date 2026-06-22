@@ -11,11 +11,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 媒体文件 MD5 / SHA-256 变更脚本。
@@ -81,20 +78,29 @@ public class FileMd5Hash {
 
         log.info("扫描出:"+files.size()+"个文件");
 
+
+        int num = 1;
         List<MediaHashResult> results = new ArrayList<>();
+        LinkedHashMap<String, Integer> extCount = new LinkedHashMap<>();
         for (File file : files) {
+            log.info("第"+(num++) +"个文件");
             String type = classify(file.getName());
-            log.info("文件名 = " + file);
-            log.info("文件类型  = " + type);
 
             if (type == null) {
                 continue;
             }
+            String ext = FilenameUtils.getExtension(file.getName()).toLowerCase();
+            extCount.merge(ext,1,Integer::sum);
             results.add(mutateOne(file, type));
         }
 
         long ok = results.stream().filter(MediaHashResult::isChanged).count();
-        log.info("处理目录 [{}] 完成：媒体文件 {} 个，成功变更 {} 个", dirPath, results.size(), ok);
+        String detail =
+                extCount.entrySet().stream().map(
+                        e-> e.getKey()+"文件"+e.getValue()+"个")
+                        .collect(Collectors.joining(","));
+
+        log.info("处理目录 [{}] 完成：媒体文件 {} 个，成功变更 {} 个，其中 {}", dirPath, results.size(), ok,detail);
         return results;
     }
 
@@ -102,6 +108,8 @@ public class FileMd5Hash {
      * 处理单个媒体文件：计算旧哈希 → 重写内容 → 计算新哈希。
      */
     private MediaHashResult mutateOne(File file, String type) {
+
+
         MediaHashResult.MediaHashResultBuilder builder = MediaHashResult.builder()
                 .filePath(file.getAbsolutePath())
                 .type(type);
@@ -109,7 +117,7 @@ public class FileMd5Hash {
 
             byte[] before = FileUtils.readFileToByteArray(file);
             String oldMd5 = DigestUtils.md5Hex(before);
-            log.info("文件:"+file.getAbsolutePath() + " &旧md5 = " + oldMd5);
+            log.info("当前文件旧md5 = " + oldMd5);
 
             builder.oldSize(before.length)
                     .oldMd5(oldMd5)
@@ -131,7 +139,7 @@ public class FileMd5Hash {
                     .newMd5(newMd5)
                     .newSha256(DigestUtils.sha256Hex(mutated))
                     .changed(true);
-            log.info("文件:"+file+" &新md5 = " + newMd5);
+            log.info("当前文件新md5 = " + newMd5);
 
             log.debug("已变更 [{}] {} -> {}", file.getName(), oldMd5, newMd5);
         } catch (IOException e) {
